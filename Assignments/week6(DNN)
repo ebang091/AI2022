@@ -1,1 +1,123 @@
+# This Python 3 environment comes with many helpful analytics libraries installed
+# It is defined by the kaggle/python Docker image: https://github.com/kaggle/docker-python
+# For example, here's several helpful packages to load
 
+import numpy as np # linear algebra
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+
+# Input data files are available in the read-only "../input/" directory
+# For example, running this (by clicking run or pressing Shift+Enter) will list all files under the input directory
+
+import os
+for dirname, _, filenames in os.walk('/kaggle/input'):
+    for filename in filenames:
+        print(os.path.join(dirname, filename))
+
+# You can write up to 20GB to the current directory (/kaggle/working/) that gets preserved as output when you create a version using "Save & Run All" 
+# You can also write temporary files to /kaggle/temp/, but they won't be saved outside of the current session
+import torch 
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+device  = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+torch.manual_seed(42)
+if(device == 'cuda'):
+    torch.cuda.manaul_seed_all(42)
+    
+
+data_path = '../input/dnnnuclear/'
+train = pd.read_csv(data_path + 'pca_train.csv')
+test = pd.read_csv(data_path + 'pca_test.csv')
+label = pd.read_csv(data_path + 'train_label.csv')
+submission = pd.read_csv(data_path + 'sample_submission.csv')
+# 시도: train을 잘라서 validation set만들어보
+train.head()
+#Scaler 필요해보인다. robustScaler, StandardScaler, MinMaxScaler
+#10분간 데이터 , 1분간 데이터인데 왜 행의 개수차이가 이렇게 나는지 모르겠다. 
+#256차원 축소가 관련된걸까?
+
+
+label.head()
+#label을 찾아서 Ytrain을 만들어야 한다. 
+print(train.shape, label.shape, test.shape, submission.shape)
+from sklearn.preprocessing import StandardScaler
+SC = StandardScaler()
+# 데이터 전처리
+#standardscaler를 이용해서 Scaling. 
+x_train = SC.fit_transform(train)
+x_test= SC.transform(test)
+
+print(np.array(train)[:5000, :])
+x_val = torch.FloatTensor(np.array(train)[:3000, :]).to(device)
+x_train = torch.FloatTensor(np.array(train)[3000:, :]).to(device)
+
+label = torch.FloatTensor(np.array(label)[:,1])
+x_test= torch.FloatTensor(np.array(test)).to(device)
+print(x_val.shape, x_train.shape, label.shape, x_test.shape)
+print(label)
+y_val  = np.array(label.unsqueeze(1))[:3000,:]
+y_train = np.array(label.unsqueeze(1))[3000:,:]
+y_val = torch.LongTensor(y_val).to(device)
+y_train =torch.LongTensor(y_train).to(device)
+print(y_val, y_val.shape, y_train, y_train.shape, x_train.shape, x_test.shape)
+#np.array.scatter(dimension, index, source)
+print(x_val.shape, x_train.shape, label.shape, x_test.shape)
+print(x_train, y_train)
+
+print(y_train[136], label[0])
+label.unique()
+print(len(y_train.unique()))
+print(len(x_train[0,:]))
+# NN을 위한 layer 설정
+
+layer1=  torch.nn.Linear(len(x_train[0,:]),512, bias = True)
+layer2=  torch.nn.Linear(2000, 1000, bias = True)
+layer3= torch.nn.Linear(512, 512, bias = True)
+layer4 = torch.nn.Linear(512, len(y_train.unique()), bias = True)
+sigmoid = torch.nn.Sigmoid()
+relu = torch.nn.ReLU()
+softmax = torch.nn.Softmax(dim =1)
+
+print(len(x_train[0,:]))
+
+loss = torch.nn.CrossEntropyLoss().to(device)
+model = torch.nn.Sequential(layer1, sigmoid , layer3,sigmoid,layer4).to(device)
+model
+optimizer = torch.optim.SGD(model.parameters(), lr= 1)
+import torch.nn.functional as F
+
+hypothesis = model(x_train)
+hypothesis
+print(y_train.squeeze(1))
+label
+np.where(label > 136)
+print(y_train.squeeze(1).shape)
+print(y_train.squeeze(1))
+print(x_train.shape, y_train.shape)
+from sklearn.model_selection import cross_validate
+from sklearn.linear_model import SGDClassifier
+
+for step in range(2000):   
+    optimizer.zero_grad()
+    hypothesis = model(x_train)
+    cost = loss(hypothesis, y_train.squeeze(1))
+    cost.backward()
+    optimizer.step()
+    hypothesis2 = model(x_val).float()
+    cost2 = loss(hypothesis2, y_val.squeeze(1))
+   
+    
+    if(step % 100 == 0):
+        print(step, cost.item(), cost2.item())
+        print((torch.argmax(hypothesis2, dim = 1))[:10], y_val[:10])
+with torch.no_grad():
+    hypothesis = model(x_val).float()
+    print(torch.argmax(hypothesis, dim  = 1))
+    accuracy = (torch.argmax(hypothesis, dim =1) == y_val).float().mean()
+    print(torch.argmax(hypothesis, dim = 1), y_val, accuracy)
+    
+    predict = torch.argmax(model(x_test), dim = 1)
+    print(predict)
+  
+  submission['label'] = predict.cpu()
+submission.to_csv('submission.csv', index = False)
