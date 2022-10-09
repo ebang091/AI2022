@@ -1,0 +1,128 @@
+# This Python 3 environment comes with many helpful analytics libraries installed
+# It is defined by the kaggle/python Docker image: https://github.com/kaggle/docker-python
+# For example, here's several helpful packages to load
+
+import numpy as np # linear algebra
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+
+# Input data files are available in the read-only "../input/" directory
+# For example, running this (by clicking run or pressing Shift+Enter) will list all files under the input directory
+
+import os
+for dirname, _, filenames in os.walk('/kaggle/input'):
+    for filename in filenames:
+        print(os.path.join(dirname, filename))
+
+# You can write up to 20GB to the current directory (/kaggle/working/) that gets preserved as output when you create a version using "Save & Run All" 
+# You can also write temporary files to /kaggle/temp/, but they won't be saved outside of the current session
+import pandas as pd
+import numpy as np
+import torch
+import torch.optim as optim
+
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+data_path = '../input/sunlightpower/'
+train  = pd.read_csv(data_path + 'train.csv')
+test = pd.read_csv(data_path + 'X_test.csv')
+submission = pd.read_csv(data_path + 'sample_submit.csv')
+# 데이터 확인
+print(train.head())
+print(test.head())
+print(train.shape, test.shape)
+#plt.scatter(train['Hour'], train['TARGET'])
+#plt.scatter(train['Minute'], train['TARGET'])
+#plt.scatter(train['Day'], train['TARGET'])
+
+#plt.scatter(train['DHI'], train['TARGET'])
+#plt.scatter(train['DNI'], train['TARGET'])
+#plt.scatter(train['WS'], train['TARGET'])
+#plt.scatter(train['RH'], train['TARGET'])
+#plt.scatter(train['T'], train['TARGET'])
+
+
+
+#자르기
+x_train_ar = np.array(train.drop(['TARGET', 'Minute','WS'], axis = 1))
+x_test_ar = np.array(test.drop(['ID', 'Minute', 'WS'], axis = 1))
+y_train_ar = np.array(train['TARGET'])
+#확인
+print(x_train_ar.shape, y_train_ar.shape)
+print(x_train_ar, y_train_ar)
+# 데이터 정규화, 검증 데이터 분리하기
+from sklearn.model_selection import train_test_split
+
+x_train, x_val, y_train, y_val = train_test_split(x_train_ar, y_train_ar, train_size = 8000)
+#확인
+print(x_train)
+print(y_train)
+print(x_val)
+print(y_val)
+print(x_train.shape, y_train.shape, x_val.shape, y_val.shape)
+# 데이터 전처리: Scaling
+#import
+from sklearn.preprocessing import MinMaxScaler
+SC = MinMaxScaler()
+#적용
+
+x_train = SC.fit_transform(x_train)
+x_test = x_test_ar
+x_val = SC.transform(x_val)
+x_test = SC.transform(x_test)
+y_train = SC.fit_transform(y_train.reshape(-1,1))
+y_val = SC.transform(y_val.reshape(-1,1))
+print(x_train, x_test, x_val)
+# NN준비
+layer1 = torch.nn.Linear(x_train.shape[1], 6000 ,bias = True)
+#확인
+print(x_train.shape)
+layer2 = torch.nn.Linear(20, 16, bias = True)
+layer3 = torch.nn.Linear(6000, 2500, bias = True)
+layer4 = torch.nn.Linear(2500, 1, bias = True)
+
+
+relu = torch.nn.ReLU()
+sigmoid = torch.nn.Sigmoid()
+#모델 만들기
+model = torch.nn.Sequential(layer1, relu, layer3, layer4).to(device)
+#loss만들기
+loss = torch.nn.MSELoss().to(device)
+#파라미터 설정
+optimizer = optim.SGD(model.parameters(), lr = 0.00169)
+# 데이터 Tensor형으로
+x_train = torch.FloatTensor(x_train).to(device)
+x_val = torch.FloatTensor(x_val).to(device)
+y_train = torch.FloatTensor(y_train).to(device)
+y_val = torch.FloatTensor(y_val).to(device)
+x_test = torch.FloatTensor(x_test).to(device)
+#확인
+print(x_train.shape)
+print(y_train.reshape(1,-1))
+y_train.reshape(-1,1).shape
+y_train.shape
+for step in range(10):
+    optimizer.zero_grad()
+    hypothesis = model(x_train).to(device)
+    hypothesis2 = model(x_val).to(device)
+    #print(hypothesis, y_train,"\n")
+
+    cost = loss(hypothesis, y_train.reshape(-1,1)).to(device)
+    cost2 = loss(hypothesis2, y_val.reshape(-1,1)).to(device)
+    accuracy  = (hypothesis2.squeeze(1) == y_val).float().mean()
+ 
+    cost.backward()
+    optimizer.step()
+    if(step % 5 == 0):
+        print(step, cost.item(), cost2.item(), accuracy)
+        print(hypothesis.squeeze(1), y_train.squeeze(1), "\n")
+        print(hypothesis2.squeeze(1), y_val.squeeze(1), "\n")
+with torch.no_grad():
+    hypothesis = model(x_test).to('cpu')
+   
+    hypothesis = SC.inverse_transform(hypothesis)
+    print(hypothesis)
+    submission['TARGET'] = hypothesis
+print(submission)
+submission.to_csv('how.csv', index = False)
